@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cliphook — Dashboard</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">&#9889;</div>
+            <div class="brand-text">clip<span>hook</span></div>
+        </div>
+        <nav class="nav">
+            <a href="/" class="nav-item"><span class="nav-icon">&#10010;</span> Create</a>
+            <a href="/dashboard.html" class="nav-item active"><span class="nav-icon">&#9776;</span> Dashboard</a>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-text">Cliphook v1.0<br>AI-powered viral clip generation</div>
+        </div>
+    </aside>
+
+    <main class="main"><div class="main-inner">
+        <div class="page-header">
+            <h1 class="page-title">Dashboard</h1>
+            <p class="page-subtitle">Usage, costs, and processing history</p>
+        </div>
+
+        <div class="stats-grid" id="stats"></div>
+        <div id="jobs"></div>
+    </div></main>
+</div>
+
+<script>
+const ago=ts=>{const s=Math.floor(Date.now()/1000-ts);return s<60?s+'s':s<3600?Math.floor(s/60)+'m':s<86400?Math.floor(s/3600)+'h':Math.floor(s/86400)+'d'};
+const fc=v=>v<.01?'$'+v.toFixed(4):'$'+v.toFixed(2);
+const ft=n=>n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':''+n;
+
+fetch('/api/usage').then(r=>r.json()).then(u=>{
+    document.getElementById('stats').innerHTML=`
+        <div class="stat-card"><div class="stat-value cost">${fc(u.total_cost)}</div><div class="stat-label">Total Spent</div></div>
+        <div class="stat-card"><div class="stat-value cost">${fc(u.total_claude_cost)}</div><div class="stat-label">Claude AI</div></div>
+        <div class="stat-card"><div class="stat-value cost">${fc(u.total_whisper_cost)}</div><div class="stat-label">Whisper ASR</div></div>
+        <div class="stat-card"><div class="stat-value tokens">${ft(u.total_input_tokens)}</div><div class="stat-label">Input Tokens</div></div>
+        <div class="stat-card"><div class="stat-value tokens">${ft(u.total_output_tokens)}</div><div class="stat-label">Output Tokens</div></div>
+        <div class="stat-card"><div class="stat-value count">${u.total_jobs}</div><div class="stat-label">Jobs Done</div></div>`;
+});
+
+fetch('/api/jobs').then(r=>r.json()).then(jobs=>{
+    const el=document.getElementById('jobs');
+    if(!jobs.length){el.innerHTML='<div class="empty-state">No jobs yet. Create your first clip!</div>';return}
+    el.innerHTML=jobs.map(j=>{
+        const cost=j.total_cost_usd||0,tok=(j.input_tokens||0)+(j.output_tokens||0);
+        const pill='status-'+(j.status||'pending');
+        return`<div class="job-item" onclick="location.href='/job.html?id=${j.id}'">
+            <div style="flex:1;min-width:0"><div class="job-name">${j.source_name||j.youtube_url||j.id}</div>
+            <div class="job-meta-row"><span class="meta-pill">${j.source_type}</span>${j.duration_seconds?`<span class="meta-pill">${Math.round(j.duration_seconds)}s</span>`:''}${tok?`<span class="meta-pill">${ft(tok)} tok</span>`:''}<span class="meta-pill">${ago(j.created_at)} ago</span>${j.user_intent?`<span class="meta-pill">"${j.user_intent.substring(0,25)}${j.user_intent.length>25?'...':''}"</span>`:''}</div></div>
+            <div class="job-right"><span class="job-cost">${cost>0?fc(cost):''}</span><span class="job-clips">${j.clip_count||j.segment_count||0}</span><span class="status-badge ${pill}">${j.status}</span>
+            <button class="btn-delete" onclick="event.stopPropagation();del('${j.id}')">Delete</button></div></div>`;
+    }).join('');
+});
+
+function del(id){if(!confirm('Delete this job?'))return;fetch('/api/jobs/'+id,{method:'DELETE'}).then(()=>location.reload())}
+</script>
+</body>
+</html>

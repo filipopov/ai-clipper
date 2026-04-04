@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipEngine — Analyze</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+                animation: {
+                    'fade-up': 'fadeUp 0.4s ease-out forwards',
+                    'fade-in': 'fadeIn 0.3s ease-out forwards',
+                    'slide-in': 'slideIn 0.4s ease-out forwards',
+                    'pulse-ring': 'pulseRing 2s ease-out infinite',
+                    'shimmer': 'shimmer 2s ease-in-out infinite',
+                    'bar-fill': 'barFill 0.8s ease-out forwards',
+                    'spin-slow': 'spin 1s linear infinite',
+                },
+                keyframes: {
+                    fadeUp: { '0%': { opacity: 0, transform: 'translateY(16px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+                    fadeIn: { '0%': { opacity: 0 }, '100%': { opacity: 1 } },
+                    slideIn: { '0%': { opacity: 0, transform: 'translateY(12px) scale(0.98)' }, '100%': { opacity: 1, transform: 'translateY(0) scale(1)' } },
+                    pulseRing: { '0%': { transform: 'scale(1)', opacity: 1 }, '100%': { transform: 'scale(1.8)', opacity: 0 } },
+                    shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
+                    barFill: { '0%': { width: '0%' }, '100%': { width: 'var(--bar-width)' } },
+                },
+            }
+        }
+    }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: #09090b; color: #fafafa; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+        /* Upload zone states */
+        .upload-zone { transition: all 0.25s ease; }
+        .upload-zone:hover { border-color: rgba(139,92,246,0.5); background: rgba(139,92,246,0.04); }
+        .upload-zone.dragover { border-color: rgba(139,92,246,0.7); background: rgba(139,92,246,0.08); transform: scale(1.01); }
+        .upload-zone.has-file { border-color: rgba(34,197,94,0.4); background: rgba(34,197,94,0.04); }
+
+        /* Pulse animation for upload icon */
+        .upload-pulse { position: relative; }
+        .upload-pulse::after {
+            content: ''; position: absolute; inset: -4px; border-radius: 20px;
+            border: 2px solid rgba(139,92,246,0.3); animation: pulseRing 2s ease-out infinite;
+        }
+
+        /* Segment card entrance */
+        .segment-card { animation: slideIn 0.4s ease-out forwards; }
+        .segment-card:nth-child(2) { animation-delay: 0.05s; }
+        .segment-card:nth-child(3) { animation-delay: 0.1s; }
+        .segment-card:nth-child(4) { animation-delay: 0.15s; }
+
+        /* Score bar animation */
+        .score-bar-fill { animation: barFill 0.8s ease-out forwards; }
+
+        /* Gradient border */
+        .gradient-border-card {
+            position: relative; background: #18181b; border-radius: 16px; overflow: hidden;
+        }
+        .gradient-border-card::before {
+            content: ''; position: absolute; inset: 0; border-radius: 16px; padding: 1px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(6,182,212,0.15), rgba(139,92,246,0.05));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor; mask-composite: exclude;
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        .gradient-border-card:hover::before { opacity: 1; }
+
+        /* App states */
+        .app-state { display: none; }
+        .app-state.active { display: block; }
+
+        /* Skeleton loading */
+        .skeleton {
+            background: linear-gradient(90deg, #18181b 25%, #27272a 50%, #18181b 75%);
+            background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite;
+            border-radius: 8px;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+        /* Progress steps */
+        .step-active .step-dot { background: #8b5cf6; box-shadow: 0 0 0 4px rgba(139,92,246,0.2); }
+        .step-complete .step-dot { background: #22c55e; }
+        .step-complete .step-line { background: #22c55e; }
+    </style>
+</head>
+<body>
+
+    <!-- ===================== TOP BAR ===================== -->
+    <header class="sticky top-0 z-50 border-b border-white/5 backdrop-blur-xl bg-zinc-950/80">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <!-- Logo -->
+                <a href="index.html" class="flex items-center gap-2 group">
+                    <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center">
+                        <svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <span class="text-sm font-bold text-white tracking-tight">ClipEngine</span>
+                </a>
+
+                <!-- Breadcrumb -->
+                <div class="hidden sm:flex items-center gap-2 text-sm">
+                    <span class="text-zinc-600">/</span>
+                    <span class="text-zinc-400">Analyzer</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <!-- File info badge (shown when file selected) -->
+                <div id="fileInfoBadge" class="hidden items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400">
+                    <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                    <span id="fileInfoName" class="max-w-[150px] truncate"></span>
+                </div>
+
+                <!-- New analysis button (shown in results state) -->
+                <button id="newAnalysisBtn" class="hidden items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-300 font-medium hover:bg-white/10 transition-colors cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                    New Analysis
+                </button>
+            </div>
+        </div>
+    </header>
+
+
+    <!-- ===================== MAIN CONTENT ===================== -->
+    <main class="max-w-6xl mx-auto px-4 sm:px-6">
+
+        <!-- ===================== UPLOAD STATE ===================== -->
+        <div id="stateUpload" class="app-state active">
+            <div class="min-h-[calc(100vh-56px)] flex flex-col items-center justify-center py-16">
+                <!-- Title -->
+                <div class="text-center mb-10">
+                    <h1 class="text-2xl sm:text-3xl font-bold text-white mb-2">Analyze Your Video</h1>
+                    <p class="text-sm text-zinc-500">Upload an SRT transcript and AI will find the most viral segments.</p>
+                </div>
+
+                <!-- Upload Zone -->
+                <div id="dropZone" class="upload-zone w-full max-w-xl border-2 border-dashed border-white/10 rounded-2xl p-10 sm:p-14 text-center cursor-pointer transition-all">
+                    <div class="upload-pulse w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mx-auto mb-5">
+                        <svg class="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                        </svg>
+                    </div>
+                    <div class="text-base font-semibold text-white mb-2">
+                        Drop your .srt file here
+                    </div>
+                    <p class="text-sm text-zinc-500 mb-4">or click to browse</p>
+
+                    <!-- File selected state -->
+                    <div id="selectedFileInfo" class="hidden">
+                        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400 font-medium">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span id="selectedFileName"></span>
+                            <span id="selectedFileSize" class="text-emerald-500/70"></span>
+                        </div>
+                    </div>
+
+                    <!-- Supported format hint -->
+                    <div id="formatHint" class="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] text-xs text-zinc-600">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                        SubRip (.srt) format supported
+                    </div>
+                </div>
+
+                <input type="file" id="fileInput" accept=".srt" class="hidden">
+
+                <!-- Analyze button -->
+                <button id="analyzeBtn" disabled class="mt-8 inline-flex items-center gap-2.5 px-8 py-3 rounded-full bg-violet-600 text-white font-semibold text-sm shadow-lg shadow-violet-500/20 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none hover:bg-violet-500 transition-all cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12"/></svg>
+                    Analyze Transcript
+                </button>
+
+                <!-- Error message -->
+                <div id="errorMsg" class="hidden mt-6 max-w-xl w-full">
+                    <div class="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                        <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+                        <div>
+                            <div class="text-sm font-medium text-red-400">Analysis Error</div>
+                            <p id="errorText" class="text-sm text-red-400/80 mt-0.5"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- ===================== ANALYZING STATE ===================== -->
+        <div id="stateAnalyzing" class="app-state">
+            <div class="py-10">
+                <!-- Progress header -->
+                <div class="max-w-2xl mx-auto mb-10">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-white">Analyzing</h2>
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-violet-500 animate-pulse"></div>
+                            <span id="analysisTimer" class="text-sm text-violet-400 font-mono font-medium">0.0s</span>
+                        </div>
+                    </div>
+
+                    <!-- Status steps -->
+                    <div class="space-y-3">
+                        <div id="stepUpload" class="flex items-center gap-3 step-complete">
+                            <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all">
+                                <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                            </div>
+                            <span class="text-sm text-zinc-300">File uploaded</span>
+                        </div>
+                        <div id="stepParse" class="flex items-center gap-3">
+                            <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all">
+                                <div class="w-2 h-2 rounded-full bg-zinc-600"></div>
+                            </div>
+                            <span id="stepParseText" class="text-sm text-zinc-500">Parsing transcript...</span>
+                        </div>
+                        <div id="stepAnalyze" class="flex items-center gap-3">
+                            <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all">
+                                <div class="w-2 h-2 rounded-full bg-zinc-600"></div>
+                            </div>
+                            <span id="stepAnalyzeText" class="text-sm text-zinc-500">AI analysis...</span>
+                        </div>
+                        <div id="stepResults" class="flex items-center gap-3">
+                            <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all">
+                                <div class="w-2 h-2 rounded-full bg-zinc-600"></div>
+                            </div>
+                            <span class="text-sm text-zinc-500">Collecting results</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Skeleton cards while waiting -->
+                <div id="skeletonCards" class="space-y-4 max-w-4xl mx-auto">
+                    <div class="rounded-2xl border border-white/5 bg-zinc-900/50 p-5">
+                        <div class="flex items-start gap-4">
+                            <div class="skeleton w-12 h-12 rounded-xl flex-shrink-0"></div>
+                            <div class="flex-1 space-y-3">
+                                <div class="skeleton h-4 w-3/4"></div>
+                                <div class="skeleton h-3 w-1/2"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rounded-2xl border border-white/5 bg-zinc-900/50 p-5">
+                        <div class="flex items-start gap-4">
+                            <div class="skeleton w-12 h-12 rounded-xl flex-shrink-0"></div>
+                            <div class="flex-1 space-y-3">
+                                <div class="skeleton h-4 w-2/3"></div>
+                                <div class="skeleton h-3 w-2/5"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rounded-2xl border border-white/5 bg-zinc-900/50 p-5 opacity-50">
+                        <div class="flex items-start gap-4">
+                            <div class="skeleton w-12 h-12 rounded-xl flex-shrink-0"></div>
+                            <div class="flex-1 space-y-3">
+                                <div class="skeleton h-4 w-1/2"></div>
+                                <div class="skeleton h-3 w-1/3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live streaming segments appear here -->
+                <div id="streamingSegments" class="space-y-4 max-w-4xl mx-auto mt-6"></div>
+            </div>
+        </div>
+
+
+        <!-- ===================== RESULTS STATE ===================== -->
+        <div id="stateResults" class="app-state">
+            <div class="py-8 sm:py-10">
+                <!-- Results header -->
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+                    <div>
+                        <h2 class="text-xl sm:text-2xl font-bold text-white mb-1">Viral Segments</h2>
+                        <p id="resultsSummary" class="text-sm text-zinc-500"></p>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span id="metaModel" class="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400 font-medium"></span>
+                        <span id="metaTokens" class="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400 font-medium"></span>
+                        <span id="metaTime" class="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400 font-medium"></span>
+                    </div>
+                </div>
+
+                <!-- Sort controls -->
+                <div class="flex items-center gap-2 mb-6">
+                    <span class="text-xs text-zinc-600">Sort by</span>
+                    <button id="sortScore" class="sort-btn px-3 py-1 rounded-lg text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/20 cursor-pointer" data-sort="score">Score</button>
+                    <button id="sortTime" class="sort-btn px-3 py-1 rounded-lg text-xs font-medium bg-white/5 text-zinc-500 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors" data-sort="time">Timeline</button>
+                    <button id="sortDuration" class="sort-btn px-3 py-1 rounded-lg text-xs font-medium bg-white/5 text-zinc-500 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors" data-sort="duration">Duration</button>
+                </div>
+
+                <!-- Segments list -->
+                <div id="segmentsList" class="space-y-4"></div>
+            </div>
+        </div>
+
+    </main>
+
+
+    <!-- ===================== APP LOGIC ===================== -->
+    <script>
+    (function() {
+        'use strict';
+
+        // ===== DOM Elements =====
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const errorMsg = document.getElementById('errorMsg');
+        const errorText = document.getElementById('errorText');
+        const fileInfoBadge = document.getElementById('fileInfoBadge');
+        const fileInfoName = document.getElementById('fileInfoName');
+        const newAnalysisBtn = document.getElementById('newAnalysisBtn');
+
+        // States
+        const stateUpload = document.getElementById('stateUpload');
+        const stateAnalyzing = document.getElementById('stateAnalyzing');
+        const stateResults = document.getElementById('stateResults');
+
+        // Analyzing
+        const analysisTimer = document.getElementById('analysisTimer');
+        const skeletonCards = document.getElementById('skeletonCards');
+        const streamingSegments = document.getElementById('streamingSegments');
+        const stepParse = document.getElementById('stepParse');
+        const stepAnalyze = document.getElementById('stepAnalyze');
+        const stepResults = document.getElementById('stepResults');
+
+        // Results
+        const segmentsList = document.getElementById('segmentsList');
+        const resultsSummary = document.getElementById('resultsSummary');
+        const metaModel = document.getElementById('metaModel');
+        const metaTokens = document.getElementById('metaTokens');
+        const metaTime = document.getElementById('metaTime');
+
+        // ===== State =====
+        let selectedFile = null;
+        let timerInterval = null;
+        let startTime = 0;
+        let allSegments = [];
+        let currentSort = 'score';
+
+        // ===== Helpers =====
+        function switchState(state) {
+            [stateUpload, stateAnalyzing, stateResults].forEach(s => s.classList.remove('active'));
+            state.classList.add('active');
+
+            if (state === stateResults) {
+                newAnalysisBtn.classList.remove('hidden');
+                newAnalysisBtn.classList.add('flex');
+            } else {
+                newAnalysisBtn.classList.add('hidden');
+                newAnalysisBtn.classList.remove('flex');
+            }
+        }
+
+        function showError(msg) {
+            errorMsg.classList.remove('hidden');
+            errorText.textContent = msg;
+        }
+
+        function hideError() {
+            errorMsg.classList.add('hidden');
+        }
+
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return m + ':' + String(s).padStart(2, '0');
+        }
+
+        function scoreColor(score) {
+            if (score >= 80) return { bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/20', bar: 'from-emerald-500 to-emerald-400' };
+            if (score >= 60) return { bg: 'bg-amber-500/15', text: 'text-amber-400', border: 'border-amber-500/20', bar: 'from-amber-500 to-amber-400' };
+            return { bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'border-zinc-500/20', bar: 'from-zinc-500 to-zinc-400' };
+        }
+
+        function setStepActive(stepEl) {
+            stepEl.classList.add('step-active');
+            stepEl.querySelector('.step-dot div')?.remove();
+            stepEl.querySelector('.step-dot').innerHTML = '<div class="w-2 h-2 rounded-full bg-white animate-pulse"></div>';
+        }
+
+        function setStepComplete(stepEl) {
+            stepEl.classList.remove('step-active');
+            stepEl.classList.add('step-complete');
+            stepEl.querySelector('.step-dot').innerHTML = '<svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>';
+        }
+
+        // ===== File Selection =====
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) selectFile(fileInput.files[0]);
+        });
+
+        function selectFile(file) {
+            if (!file.name.toLowerCase().endsWith('.srt')) {
+                showError('Please select an .srt subtitle file.');
+                return;
+            }
+            hideError();
+            selectedFile = file;
+            analyzeBtn.disabled = false;
+
+            // Update upload zone
+            dropZone.classList.add('has-file');
+            document.getElementById('selectedFileInfo').classList.remove('hidden');
+            document.getElementById('selectedFileName').textContent = file.name;
+            document.getElementById('selectedFileSize').textContent = '(' + (file.size / 1024).toFixed(1) + ' KB)';
+            document.getElementById('formatHint').classList.add('hidden');
+
+            // Update header badge
+            fileInfoBadge.classList.remove('hidden');
+            fileInfoBadge.classList.add('flex');
+            fileInfoName.textContent = file.name;
+        }
+
+        // ===== New Analysis =====
+        newAnalysisBtn.addEventListener('click', resetToUpload);
+
+        function resetToUpload() {
+            selectedFile = null;
+            fileInput.value = '';
+            analyzeBtn.disabled = true;
+            allSegments = [];
+
+            // Reset upload zone
+            dropZone.classList.remove('has-file');
+            document.getElementById('selectedFileInfo').classList.add('hidden');
+            document.getElementById('formatHint').classList.remove('hidden');
+
+            // Reset header
+            fileInfoBadge.classList.add('hidden');
+            fileInfoBadge.classList.remove('flex');
+
+            // Clear results
+            segmentsList.innerHTML = '';
+            streamingSegments.innerHTML = '';
+
+            hideError();
+            switchState(stateUpload);
+        }
+
+        // ===== Analysis =====
+        analyzeBtn.addEventListener('click', startAnalysis);
+
+        function startAnalysis() {
+            if (!selectedFile) return;
+
+            // Reset
+            analyzeBtn.disabled = true;
+            hideError();
+            allSegments = [];
+            streamingSegments.innerHTML = '';
+            skeletonCards.style.display = '';
+
+            // Reset steps
+            [stepParse, stepAnalyze, stepResults].forEach(step => {
+                step.classList.remove('step-active', 'step-complete');
+                step.querySelector('.step-dot').innerHTML = '<div class="w-2 h-2 rounded-full bg-zinc-600"></div>';
+            });
+
+            // Switch to analyzing state
+            switchState(stateAnalyzing);
+
+            // Start timer
+            startTime = performance.now();
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                analysisTimer.textContent = ((performance.now() - startTime) / 1000).toFixed(1) + 's';
+            }, 100);
+
+            // Set first step active
+            setStepActive(stepParse);
+
+            // Make request
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            fetch('/api/analyze', { method: 'POST', body: formData })
+                .then(response => {
+                    if (!response.ok) throw new Error('Upload failed: ' + response.status);
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let segmentIndex = 0;
+
+                    function processChunk({ done, value }) {
+                        if (done) { finishAnalysis(); return; }
+                        buffer += decoder.decode(value, { stream: true });
+
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop();
+
+                        let eventName = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                eventName = line.substring(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                const data = line.substring(5).trim();
+                                handleEvent(eventName, data);
+                                eventName = '';
+                            }
+                        }
+                        reader.read().then(processChunk);
+                    }
+
+                    function handleEvent(name, data) {
+                        switch (name) {
+                            case 'status':
+                                updateStatus(data);
+                                break;
+                            case 'segment':
+                                try {
+                                    const seg = JSON.parse(data);
+                                    segmentIndex++;
+                                    allSegments.push(seg);
+
+                                    // Hide skeleton, show streaming segment
+                                    skeletonCards.style.display = 'none';
+                                    renderStreamingSegment(seg, segmentIndex);
+
+                                    // Update step
+                                    setStepComplete(stepAnalyze);
+                                    setStepActive(stepResults);
+                                    document.getElementById('stepAnalyzeText').textContent = 'Found ' + segmentIndex + ' segment(s)';
+                                } catch(e) {}
+                                break;
+                            case 'done':
+                                try {
+                                    const meta = JSON.parse(data);
+                                    finishAnalysis(meta);
+                                } catch(e) { finishAnalysis(); }
+                                break;
+                            case 'error':
+                                showError(data);
+                                abortAnalysis();
+                                break;
+                        }
+                    }
+
+                    reader.read().then(processChunk);
+                })
+                .catch(e => {
+                    showError('Request failed: ' + e.message);
+                    abortAnalysis();
+                });
+        }
+
+        function updateStatus(text) {
+            if (text.includes('Parsing') || text.includes('Parsed')) {
+                setStepComplete(stepParse);
+                setStepActive(stepAnalyze);
+                document.getElementById('stepParseText').textContent = text;
+            }
+            if (text.includes('Calling') || text.includes('Receiving') || text.includes('Found')) {
+                document.getElementById('stepAnalyzeText').textContent = text;
+            }
+        }
+
+        function abortAnalysis() {
+            clearInterval(timerInterval);
+            switchState(stateUpload);
+            analyzeBtn.disabled = false;
+        }
+
+        function finishAnalysis(meta) {
+            clearInterval(timerInterval);
+            const totalTime = ((performance.now() - startTime) / 1000).toFixed(1);
+
+            // Complete all steps
+            setStepComplete(stepParse);
+            setStepComplete(stepAnalyze);
+            setStepComplete(stepResults);
+
+            // Short delay then show results
+            setTimeout(() => {
+                switchState(stateResults);
+
+                // Set meta badges
+                if (meta) {
+                    metaModel.textContent = meta.modelUsed || '';
+                    metaTokens.textContent = (meta.inputTokens || 0) + ' in / ' + (meta.outputTokens || 0) + ' out tokens';
+                    metaModel.style.display = meta.modelUsed ? '' : 'none';
+                }
+                metaTime.textContent = totalTime + 's';
+
+                // Summary
+                resultsSummary.textContent = allSegments.length + ' segment' + (allSegments.length !== 1 ? 's' : '') + ' found';
+
+                // Render results
+                renderAllSegments();
+                analyzeBtn.disabled = false;
+            }, 500);
+        }
+
+        // ===== Rendering =====
+        function renderStreamingSegment(seg, i) {
+            const sc = scoreColor(seg.virality_score);
+            const duration = Math.round(seg.end_time - seg.start_time);
+            const card = document.createElement('div');
+            card.className = 'segment-card rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-5 hover:border-violet-500/20 transition-colors';
+            card.innerHTML = `
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-12 h-12 rounded-xl ${sc.bg} flex items-center justify-center">
+                        <span class="text-lg font-bold ${sc.text}">${seg.virality_score}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-sm text-white mb-1">${i}. ${escapeHtml(seg.suggested_title)}</div>
+                        <div class="flex items-center gap-3 text-xs text-zinc-500">
+                            <span>${formatTime(seg.start_time)} – ${formatTime(seg.end_time)}</span>
+                            <span>${duration}s</span>
+                            <span class="text-violet-400/70">${escapeHtml(seg.topic)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            streamingSegments.appendChild(card);
+        }
+
+        function renderAllSegments() {
+            segmentsList.innerHTML = '';
+            const sorted = sortSegments([...allSegments], currentSort);
+
+            sorted.forEach((seg, idx) => {
+                const sc = scoreColor(seg.virality_score);
+                const duration = Math.round(seg.end_time - seg.start_time);
+                const bd = seg.score_breakdown || {};
+                const card = document.createElement('div');
+                card.className = 'segment-card gradient-border-card p-5 sm:p-6';
+                card.style.animationDelay = (idx * 0.05) + 's';
+
+                const breakdownItems = [
+                    { label: 'Hook Strength', value: bd.hook_strength, color: 'from-violet-500 to-violet-400' },
+                    { label: 'Emotion', value: bd.emotional_intensity, color: 'from-cyan-500 to-cyan-400' },
+                    { label: 'Self-Contained', value: bd.self_contained, color: 'from-emerald-500 to-emerald-400' },
+                    { label: 'Surprise', value: bd.surprise_factor, color: 'from-amber-500 to-amber-400' },
+                    { label: 'Energy', value: bd.speaking_energy, color: 'from-rose-500 to-rose-400' },
+                    { label: 'Duration Fit', value: bd.duration_fit, color: 'from-blue-500 to-blue-400' },
+                    { label: 'Boundaries', value: bd.clean_boundaries, color: 'from-purple-500 to-purple-400' },
+                ].filter(item => item.value !== undefined);
+
+                card.innerHTML = `
+                    <!-- Header -->
+                    <div class="flex items-start gap-4 mb-4">
+                        <div class="flex-shrink-0 w-14 h-14 rounded-2xl ${sc.bg} border ${sc.border} flex items-center justify-center">
+                            <span class="text-2xl font-bold ${sc.text}">${seg.virality_score}</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-semibold text-white mb-1.5">${escapeHtml(seg.suggested_title)}</h3>
+                            <div class="flex items-center gap-3 text-xs text-zinc-500 flex-wrap">
+                                <span class="inline-flex items-center gap-1">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                                    ${formatTime(seg.start_time)} – ${formatTime(seg.end_time)}
+                                </span>
+                                <span class="px-1.5 py-0.5 rounded bg-white/5">${duration}s</span>
+                                <span class="text-violet-400/70">${escapeHtml(seg.topic)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hook -->
+                    ${seg.hook_text ? `
+                    <div class="mb-4 pl-4 border-l-2 border-violet-500/30">
+                        <p class="text-sm text-violet-300/80 italic">"${escapeHtml(seg.hook_text)}"</p>
+                    </div>` : ''}
+
+                    <!-- Hashtags -->
+                    ${seg.suggested_hashtags && seg.suggested_hashtags.length ? `
+                    <div class="flex gap-1.5 flex-wrap mb-5">
+                        ${seg.suggested_hashtags.map(h => `<span class="px-2 py-0.5 text-xs rounded-full bg-violet-500/10 text-violet-300/80 font-medium">${escapeHtml(h)}</span>`).join('')}
+                    </div>` : ''}
+
+                    <!-- Score Breakdown -->
+                    ${breakdownItems.length ? `
+                    <div class="grid sm:grid-cols-2 gap-x-6 gap-y-2.5">
+                        ${breakdownItems.map(item => `
+                        <div>
+                            <div class="flex items-center justify-between text-xs mb-1">
+                                <span class="text-zinc-500">${item.label}</span>
+                                <span class="text-zinc-300 font-semibold">${item.value}</span>
+                            </div>
+                            <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                <div class="score-bar-fill h-full bg-gradient-to-r ${item.color} rounded-full" style="--bar-width: ${item.value}%; width: ${item.value}%"></div>
+                            </div>
+                        </div>`).join('')}
+                    </div>` : ''}
+
+                    <!-- Actions -->
+                    <div class="mt-5 pt-4 border-t border-white/5 flex items-center gap-2">
+                        <button onclick="copySegment(${JSON.stringify(seg).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400 font-medium hover:bg-white/10 transition-colors cursor-pointer">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>
+                            Copy Info
+                        </button>
+                        <button onclick="copyTimestamp(${seg.start_time}, ${seg.end_time})" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400 font-medium hover:bg-white/10 transition-colors cursor-pointer">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Copy Timestamp
+                        </button>
+                    </div>
+                `;
+
+                segmentsList.appendChild(card);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        // ===== Sorting =====
+        function sortSegments(segments, by) {
+            switch (by) {
+                case 'score': return segments.sort((a, b) => b.virality_score - a.virality_score);
+                case 'time': return segments.sort((a, b) => a.start_time - b.start_time);
+                case 'duration': return segments.sort((a, b) => (b.end_time - b.start_time) - (a.end_time - a.start_time));
+                default: return segments;
+            }
+        }
+
+        document.querySelectorAll('.sort-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentSort = btn.dataset.sort;
+                // Update active styling
+                document.querySelectorAll('.sort-btn').forEach(b => {
+                    b.className = 'sort-btn px-3 py-1 rounded-lg text-xs font-medium bg-white/5 text-zinc-500 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors';
+                });
+                btn.className = 'sort-btn px-3 py-1 rounded-lg text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/20 cursor-pointer';
+                renderAllSegments();
+            });
+        });
+
+        // ===== Clipboard Actions =====
+        window.copySegment = function(seg) {
+            const text = `${seg.suggested_title}\n${formatTime(seg.start_time)} – ${formatTime(seg.end_time)} (${Math.round(seg.end_time - seg.start_time)}s)\nScore: ${seg.virality_score}/100\nHook: "${seg.hook_text}"\n${(seg.suggested_hashtags || []).join(' ')}`;
+            navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard'));
+        };
+
+        window.copyTimestamp = function(start, end) {
+            navigator.clipboard.writeText(`${formatTime(start)} – ${formatTime(end)}`).then(() => showToast('Timestamp copied'));
+        };
+
+        function showToast(message) {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.className = 'toast fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-zinc-800 border border-white/10 text-sm text-white font-medium shadow-2xl animate-fade-up';
+            toast.innerHTML = `
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    ${message}
+                </span>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 2000);
+        }
+
+    })();
+    </script>
+</body>
+</html>

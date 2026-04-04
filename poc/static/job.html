@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cliphook — Job Detail</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">&#9889;</div>
+            <div class="brand-text">clip<span>hook</span></div>
+        </div>
+        <nav class="nav">
+            <a href="/" class="nav-item"><span class="nav-icon">&#10010;</span> Create</a>
+            <a href="/dashboard.html" class="nav-item active"><span class="nav-icon">&#9776;</span> Dashboard</a>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-text">Cliphook v1.0<br>AI-powered viral clip generation</div>
+        </div>
+    </aside>
+
+    <main class="main"><div class="main-inner" id="content">
+        <div class="empty-state">Loading...</div>
+    </div></main>
+</div>
+
+<script>
+const id=new URLSearchParams(location.search).get('id');
+const fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+const sc=s=>s>=80?'score-high':s>=60?'score-mid':'score-low';
+const fc=v=>v<.01?'$'+v.toFixed(4):'$'+v.toFixed(2);
+
+if(!id){document.getElementById('content').innerHTML='<div class="empty-state">No job ID specified</div>'}
+else{
+fetch('/api/jobs/'+id).then(r=>r.json()).then(job=>{
+    if(job.error){document.getElementById('content').innerHTML='<div class="empty-state">'+job.error+'</div>';return}
+    const c=document.getElementById('content');
+    let h=`<div class="page-header"><h1 class="page-title">${job.source_name||job.youtube_url||job.id}</h1>
+        <p class="page-subtitle">Job detail and generated clips</p></div>
+        <div style="background:var(--bg-secondary);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:1.1rem 1.25rem;margin-bottom:1.5rem">
+        <div class="clip-meta">
+            <span class="meta-pill">${job.source_type}</span>
+            <span class="status-badge status-${job.status}">${job.status}</span>
+            ${job.duration_seconds?`<span class="meta-pill">${Math.round(job.duration_seconds)}s</span>`:''}
+            ${job.ai_model?`<span class="meta-pill">${job.ai_model}</span>`:''}
+            ${job.ai_elapsed?`<span class="meta-pill">${job.ai_elapsed}s</span>`:''}
+            ${job.total_cost_usd?`<span class="meta-pill" style="color:var(--success)">${fc(job.total_cost_usd)}</span>`:''}
+            ${job.caption_style?`<span class="meta-pill">${job.caption_style}</span>`:''}
+            ${job.user_intent?`<span class="meta-pill">"${job.user_intent}"</span>`:''}
+        </div></div>`;
+
+    if(job.clips&&job.clips.length){
+        h+='<div class="clip-list">';
+        job.clips.forEach((cl,i)=>{
+            const dur=((cl.end_time||0)-(cl.start_time||0)).toFixed(0),has=!!cl.video_url;
+            h+=`<div class="clip-card"><div class="clip-body">
+                ${has?`<div class="clip-preview" id="p${i}" onclick="tog(${i})"><video src="${cl.video_url}" preload="metadata" loop playsinline poster="${cl.thumb_url||''}"></video><div class="clip-play">&#9654;</div></div>`:''}
+                <div class="clip-info">
+                    <div class="clip-top"><div class="clip-title">${i+1}. ${cl.suggested_title||''}</div><div class="clip-score ${sc(cl.virality_score)}">${cl.virality_score}</div></div>
+                    <div class="clip-meta"><span class="meta-pill">${fmt(cl.start_time)} – ${fmt(cl.end_time)}</span><span class="meta-pill">${dur}s</span><span class="meta-pill">${cl.topic||''}</span></div>
+                    <div class="clip-hook">"${cl.hook_text||''}"</div>
+                    <div class="clip-meta">${(cl.suggested_hashtags||[]).map(t=>'<span class="tag-pill">'+t+'</span>').join('')}</div>
+                    ${has?`<a class="btn-sm btn-accent" href="${cl.download_url}" download>&#11015; Download</a>`:''}
+                </div></div></div>`;
+        });
+        h+='</div>';
+    } else h+='<div class="empty-state">No clips generated for this job</div>';
+    c.innerHTML=h;
+})}
+
+function tog(i){const el=document.getElementById('p'+i),v=el.querySelector('video');v.paused?(v.play(),el.classList.add('playing')):(v.pause(),el.classList.remove('playing'))}
+</script>
+</body>
+</html>
