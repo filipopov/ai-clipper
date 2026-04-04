@@ -75,8 +75,35 @@
             border-radius: 8px;
         }
 
-        .step-active .step-dot { background: #8b5cf6; box-shadow: 0 0 0 4px rgba(139,92,246,0.2); }
+        .step-active .step-dot { background: #8b5cf6; box-shadow: 0 0 0 4px rgba(139,92,246,0.2); animation: vibrate 0.4s ease-in-out infinite; }
         .step-complete .step-dot { background: #22c55e; }
+
+        @keyframes vibrate {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-1.5px) rotate(-1deg); }
+            75% { transform: translateX(1.5px) rotate(1deg); }
+        }
+
+        /* Progress bar */
+        .progress-track { position: relative; height: 6px; background: rgba(255,255,255,0.05); border-radius: 99px; overflow: hidden; }
+        .progress-fill {
+            position: absolute; inset: 0; right: auto; border-radius: 99px;
+            background: linear-gradient(90deg, #7c3aed, #8b5cf6, #a78bfa, #8b5cf6, #7c3aed);
+            background-size: 200% 100%; animation: shimmer 2s ease-in-out infinite;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .progress-fill::after {
+            content: ''; position: absolute; right: 0; top: -2px; bottom: -2px; width: 20px;
+            background: radial-gradient(circle at right, rgba(139,92,246,0.6), transparent);
+            border-radius: 99px; filter: blur(4px);
+        }
+
+        /* Tips card */
+        .tip-card { animation: fadeUp 0.4s ease-out forwards; }
+        .tip-text { animation: fadeIn 0.5s ease-out; }
+
+        /* Filename wrapping */
+        .file-name-wrap { word-break: break-all; overflow-wrap: break-word; }
 
         /* Video preview */
         .clip-preview { position: relative; cursor: pointer; border-radius: 12px; overflow: hidden; background: #000; }
@@ -131,7 +158,7 @@
             <div class="flex items-center gap-3">
                 <div id="fileInfoBadge" class="hidden items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-400">
                     <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
-                    <span id="fileInfoName" class="max-w-[150px] truncate"></span>
+                    <span id="fileInfoName" class="max-w-[200px] truncate"></span>
                 </div>
                 <a href="/create" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/10 transition-colors">
                     Classic UI
@@ -190,10 +217,10 @@
                         <div class="text-base font-semibold text-white mb-1">Drop video or .srt file here</div>
                         <p class="text-sm text-zinc-500 mb-3">or click to browse</p>
                         <div id="selectedFileInfo" class="hidden">
-                            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400 font-medium">
-                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                <span id="selectedFileName"></span>
-                                <span id="selectedFileSize" class="text-emerald-500/70"></span>
+                            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400 font-medium max-w-full">
+                                <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <span id="selectedFileName" class="file-name-wrap"></span>
+                                <span id="selectedFileSize" class="text-emerald-500/70 flex-shrink-0"></span>
                             </div>
                         </div>
                         <div id="formatHint" class="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] text-xs text-zinc-600">
@@ -274,35 +301,62 @@
         <div id="stateAnalyzing" class="app-state">
             <div class="py-10">
                 <div class="max-w-2xl mx-auto mb-10">
-                    <div class="flex items-center justify-between mb-6">
+                    <!-- Progress header -->
+                    <div class="flex items-center justify-between mb-2">
                         <h2 class="text-xl font-bold text-white">Processing</h2>
-                        <div class="flex items-center gap-2">
-                            <div class="w-2 h-2 rounded-full bg-violet-500 animate-pulse"></div>
+                        <div class="flex items-center gap-3">
+                            <span id="analysisEta" class="text-xs text-zinc-500 font-medium"></span>
                             <span id="analysisTimer" class="text-sm text-violet-400 font-mono font-medium">0.0s</span>
+                        </div>
+                    </div>
+
+                    <!-- Progress bar with percentage -->
+                    <div class="mb-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <span id="progressLabel" class="text-xs text-zinc-500">Starting...</span>
+                            <span id="progressPct" class="text-sm font-bold text-violet-400 font-mono">0%</span>
+                        </div>
+                        <div class="progress-track">
+                            <div id="progressFill" class="progress-fill" style="width: 0%"></div>
                         </div>
                     </div>
 
                     <!-- Pipeline steps -->
                     <div class="space-y-3" id="pipelineSteps">
-                        <div class="pipe-step flex items-center gap-3" data-stage="probe">
+                        <div class="pipe-step flex items-center gap-3" data-stage="probe" data-pct="5">
                             <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all"><div class="w-2 h-2 rounded-full bg-zinc-600"></div></div>
                             <span class="step-text text-sm text-zinc-500">Probing file...</span>
                         </div>
-                        <div class="pipe-step flex items-center gap-3" data-stage="audio">
+                        <div class="pipe-step flex items-center gap-3" data-stage="audio" data-pct="15">
                             <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all"><div class="w-2 h-2 rounded-full bg-zinc-600"></div></div>
                             <span class="step-text text-sm text-zinc-500">Extracting audio...</span>
                         </div>
-                        <div class="pipe-step flex items-center gap-3" data-stage="transcribe">
+                        <div class="pipe-step flex items-center gap-3" data-stage="transcribe" data-pct="35">
                             <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all"><div class="w-2 h-2 rounded-full bg-zinc-600"></div></div>
                             <span class="step-text text-sm text-zinc-500">Transcribing...</span>
                         </div>
-                        <div class="pipe-step flex items-center gap-3" data-stage="analyze">
+                        <div class="pipe-step flex items-center gap-3" data-stage="analyze" data-pct="60">
                             <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all"><div class="w-2 h-2 rounded-full bg-zinc-600"></div></div>
                             <span class="step-text text-sm text-zinc-500">AI analyzing...</span>
                         </div>
-                        <div class="pipe-step flex items-center gap-3" data-stage="render">
+                        <div class="pipe-step flex items-center gap-3" data-stage="render" data-pct="80">
                             <div class="step-dot w-6 h-6 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0 transition-all"><div class="w-2 h-2 rounded-full bg-zinc-600"></div></div>
                             <span class="step-text text-sm text-zinc-500">Rendering clips...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tips card -->
+                <div id="tipsCard" class="max-w-2xl mx-auto mb-8">
+                    <div class="tip-card rounded-2xl border border-violet-500/10 bg-violet-500/[0.03] p-5">
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+                                <svg id="tipIcon" class="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>
+                            </div>
+                            <div>
+                                <div class="text-xs font-semibold text-violet-400/80 uppercase tracking-wider mb-1" id="tipLabel">Did you know?</div>
+                                <p class="text-sm text-zinc-300 leading-relaxed tip-text" id="tipText">Videos with a strong hook in the first 3 seconds get 65% more engagement on average.</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -360,6 +414,70 @@
         let timerInterval = null, startTime = 0, allSegments = [], currentSort = 'score';
         let isSrt = false, isVideo = false;
         let currentUser = null;
+        let currentPct = 0, tipInterval = null, displayedPct = 0, pctAnimFrame = null;
+
+        // ===== Tips rotation =====
+        const TIPS = [
+            { label: 'Did you know?', text: 'Videos with a strong hook in the first 3 seconds get 65% more engagement on average.' },
+            { label: 'Pro tip', text: 'The optimal clip length for TikTok is 21–34 seconds — short enough to rewatch, long enough to hook.' },
+            { label: 'Insight', text: 'Clips with emotional peaks get 3x more shares than flat, informational content.' },
+            { label: 'Fun fact', text: 'Adding captions to your clips increases average watch time by 80% — most viewers scroll with sound off.' },
+            { label: 'Pro tip', text: 'Questions in titles drive 2x more comments. Try "Why does nobody talk about this?" formats.' },
+            { label: 'Did you know?', text: 'Vertical video (9:16) gets 90% more completed views than horizontal on mobile platforms.' },
+            { label: 'Insight', text: 'Content with a surprise element in the first 5 seconds gets 40% more saves and shares.' },
+            { label: 'Pro tip', text: 'The best posting times for short-form content are 7–9 AM and 7–10 PM in your audience\'s timezone.' },
+            { label: 'Fun fact', text: 'Creators who repurpose long-form into 5+ clips per video grow their audience 3.5x faster.' },
+            { label: 'Insight', text: 'Clips that end on a cliffhanger or open loop get 2x more profile visits than those with clean endings.' },
+        ];
+        let tipIndex = 0;
+
+        function startTips() {
+            tipIndex = Math.floor(Math.random() * TIPS.length);
+            showTip();
+            tipInterval = setInterval(() => { tipIndex = (tipIndex + 1) % TIPS.length; showTip(); }, 6000);
+        }
+
+        function stopTips() { clearInterval(tipInterval); }
+
+        function showTip() {
+            const tip = TIPS[tipIndex];
+            const el = $('tipText'), lbl = $('tipLabel');
+            el.style.opacity = '0'; el.style.transition = 'opacity 0.3s';
+            setTimeout(() => { el.textContent = tip.text; lbl.textContent = tip.label; el.style.opacity = '1'; }, 300);
+        }
+
+        // ===== Progress tracking =====
+        const STAGE_PCT = { probe: 5, audio: 15, transcribe: 35, analyze: 60, render: 80 };
+
+        function setProgress(pct, label) {
+            currentPct = Math.min(pct, 99);
+            if (label) $('progressLabel').textContent = label;
+            $('progressFill').style.width = currentPct + '%';
+            animatePct();
+            updateEta();
+        }
+
+        function animatePct() {
+            cancelAnimationFrame(pctAnimFrame);
+            (function tick() {
+                if (displayedPct < currentPct) {
+                    displayedPct = Math.min(displayedPct + 1, currentPct);
+                    $('progressPct').textContent = displayedPct + '%';
+                    pctAnimFrame = requestAnimationFrame(tick);
+                }
+            })();
+        }
+
+        function updateEta() {
+            const elapsed = (performance.now() - startTime) / 1000;
+            if (currentPct < 5 || elapsed < 3) { $('analysisEta').textContent = ''; return; }
+            const totalEst = elapsed / (currentPct / 100);
+            const remaining = Math.max(0, totalEst - elapsed);
+            if (remaining < 5) { $('analysisEta').textContent = 'Almost done...'; return; }
+            const m = Math.floor(remaining / 60);
+            const s = Math.floor(remaining % 60);
+            $('analysisEta').textContent = m > 0 ? `~${m}m ${s}s remaining` : `~${s}s remaining`;
+        }
 
         // ===== Auth check on load =====
         fetch('/api/me').then(r => r.json()).then(data => {
@@ -474,7 +592,10 @@
             const steps = [...document.querySelectorAll('.pipe-step')];
             let found = false;
             steps.forEach(s => {
-                if (s.dataset.stage === stage) { setStepActive(s); s.querySelector('.step-text').textContent = message; found = true; }
+                if (s.dataset.stage === stage) {
+                    setStepActive(s); s.querySelector('.step-text').textContent = message; found = true;
+                    setProgress(parseInt(s.dataset.pct) || 0, message);
+                }
                 else if (!found) { setStepComplete(s); }
             });
         }
@@ -486,8 +607,12 @@
             $('goBtn').disabled = true; hideError();
             allSegments = []; currentJobId = null;
             $('streamingSegments').innerHTML = ''; $('skeletonCards').style.display = '';
+            currentPct = 0; displayedPct = 0;
+            $('progressFill').style.width = '0%'; $('progressPct').textContent = '0%';
+            $('progressLabel').textContent = 'Starting...'; $('analysisEta').textContent = '';
 
             resetPipeline();
+            startTips();
 
             // Determine mode
             const isUrl = activeTab === 'url';
@@ -555,10 +680,17 @@
             function handleEvent(ev, data) {
                 switch (ev) {
                     case 'status':
-                        if (data.includes('Pars') || data.includes('Analyz') || data.includes('Receiv') || data.includes('Found')) {
-                            const analyzeStep = document.querySelector('.pipe-step[data-stage="analyze"]');
-                            analyzeStep.querySelector('.step-text').textContent = data;
+                        if (data.includes('Pars')) setProgress(10, data);
+                        else if (data.includes('targeting')) setProgress(20, data);
+                        else if (data.includes('Analyz') || data.includes('Receiv')) setProgress(Math.max(currentPct, 40), data);
+                        else if (data.includes('Found')) setProgress(Math.min(currentPct + 3, 90), data);
+                        else if (data.includes('Rendering clip')) {
+                            const m = data.match(/(\d+)\/(\d+)/);
+                            if (m) setProgress(80 + Math.round((parseInt(m[1]) / parseInt(m[2])) * 18), data);
                         }
+                        const analyzeStep = document.querySelector('.pipe-step[data-stage="analyze"]');
+                        if (analyzeStep) analyzeStep.querySelector('.step-text').textContent = data;
+                        $('progressLabel').textContent = data;
                         break;
                     case 'pipeline':
                         try { const p = JSON.parse(data); setPipelineStage(p.stage, p.message); } catch(e) {}
@@ -622,10 +754,12 @@
             $('streamingSegments').appendChild(card);
         }
 
-        function abortAnalysis() { clearInterval(timerInterval); switchState('stateUpload'); $('goBtn').disabled = false; }
+        function abortAnalysis() { clearInterval(timerInterval); stopTips(); switchState('stateUpload'); $('goBtn').disabled = false; }
 
         function finishAnalysis(meta) {
-            clearInterval(timerInterval);
+            clearInterval(timerInterval); stopTips();
+            setProgress(100, 'Complete');
+            $('analysisEta').textContent = '';
             const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
 
             document.querySelectorAll('.pipe-step').forEach(s => { if(s.style.display !== 'none') setStepComplete(s); });
