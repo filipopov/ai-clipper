@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import costs
@@ -439,7 +439,67 @@ def _process_video(video_path: str, job_id: str, job_dir: Path, user_intent: str
     yield sse("done", {**analysis_meta, "clips": rendered_clips, "jobId": job_id})
 
 
-# ── Static file serving ───────────────────────────────────────────────
+# ── Protected page serving ────────────────────────────────────────────
+
+STATIC_DIR = BASE_DIR / "static"
+NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
+
+PROTECTED_ROUTES = {
+    "app": "app.html",
+    "create": "create.html",
+    "dashboard": "dashboard.html",
+    "job": "job.html",
+}
+
+PUBLIC_ROUTES = {
+    "login": "auth.html",
+    "signup": "auth.html",
+}
+
+
+@app.get("/app")
+@app.get("/create")
+@app.get("/dashboard")
+@app.get("/job")
+async def serve_protected(request: Request):
+    page = request.url.path.lstrip("/").split("?")[0]
+    filename = PROTECTED_ROUTES.get(page)
+    if not filename:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    return FileResponse(STATIC_DIR / filename, headers=NO_CACHE)
+
+
+@app.get("/login")
+@app.get("/signup")
+async def serve_auth(request: Request):
+    # If already logged in, go straight to app
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse("/app", status_code=302)
+    return FileResponse(STATIC_DIR / "auth.html", headers=NO_CACHE)
+
+
+# Legacy .html paths → redirect to clean URLs
+@app.get("/app.html")
+async def redirect_app(): return RedirectResponse("/app", status_code=301)
+
+@app.get("/auth.html")
+async def redirect_auth(): return RedirectResponse("/login", status_code=301)
+
+@app.get("/create.html")
+async def redirect_create(): return RedirectResponse("/create", status_code=301)
+
+@app.get("/dashboard.html")
+async def redirect_dashboard(): return RedirectResponse("/dashboard", status_code=301)
+
+@app.get("/job.html")
+async def redirect_job(): return RedirectResponse("/job", status_code=301)
+
+
+# ── Static file serving (public pages, assets) ──────────────────────
 
 app.mount("/workdir", StaticFiles(directory=str(WORK_DIR)), name="workdir")
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

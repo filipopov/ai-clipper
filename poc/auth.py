@@ -140,7 +140,7 @@ async def google_login(request: Request):
 @router.get("/auth/google/callback")
 async def google_callback(code: str = "", error: str = ""):
     if error or not code:
-        return RedirectResponse("/auth.html?error=oauth_denied")
+        return RedirectResponse("/login?error=oauth_denied")
 
     redirect_uri = BASE_URL + "/auth/google/callback"
 
@@ -154,7 +154,7 @@ async def google_callback(code: str = "", error: str = ""):
             "grant_type": "authorization_code",
         })
         if token_resp.status_code != 200:
-            return RedirectResponse("/auth.html?error=oauth_failed")
+            return RedirectResponse("/login?error=oauth_failed")
         tokens = token_resp.json()
 
         # Get user info
@@ -163,7 +163,7 @@ async def google_callback(code: str = "", error: str = ""):
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
         )
         if info_resp.status_code != 200:
-            return RedirectResponse("/auth.html?error=oauth_failed")
+            return RedirectResponse("/login?error=oauth_failed")
         info = info_resp.json()
 
     google_id = info["id"]
@@ -182,7 +182,7 @@ async def google_callback(code: str = "", error: str = ""):
             db.create_user(user_id, email, name, avatar, google_id=google_id)
             user = db.get_user(user_id)
 
-    response = RedirectResponse("/app.html")
+    response = RedirectResponse("/app")
     _set_session_cookie(response, user["id"])
     return response
 
@@ -204,7 +204,7 @@ async def register(email: str = Form(...), password: str = Form(...), name: str 
     pw_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
     db.create_user(user_id, email, name or email.split("@")[0], password_hash=pw_hash)
 
-    resp = JSONResponse({"ok": True, "redirect": "/app.html"})
+    resp = JSONResponse({"ok": True, "redirect": "/app"})
     _set_session_cookie(resp, user_id)
     return resp
 
@@ -218,7 +218,7 @@ async def login(email: str = Form(...), password: str = Form(...)):
     if not _bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
         return JSONResponse({"error": "Invalid email or password."}, status_code=401)
 
-    resp = JSONResponse({"ok": True, "redirect": "/app.html"})
+    resp = JSONResponse({"ok": True, "redirect": "/app"})
     _set_session_cookie(resp, user["id"])
     return resp
 
