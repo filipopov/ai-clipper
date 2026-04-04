@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cliphook — AI Video Clipper</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">&#9889;</div>
+            <div class="brand-text">clip<span>hook</span></div>
+        </div>
+        <nav class="nav">
+            <a href="/create.html" class="nav-item active"><span class="nav-icon">&#10010;</span> Create</a>
+            <a href="/dashboard.html" class="nav-item"><span class="nav-icon">&#9776;</span> Dashboard</a>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-text">Cliphook v1.0<br>AI-powered viral clip generation</div>
+        </div>
+    </aside>
+
+    <main class="main"><div class="main-inner">
+        <div class="page-header">
+            <h1 class="page-title">Create clips</h1>
+            <p class="page-subtitle">Upload a video, paste a link, or drop a transcript file</p>
+        </div>
+
+        <div class="tab-group">
+            <button class="tab-btn active" onclick="setTab('file')">Upload File</button>
+            <button class="tab-btn" onclick="setTab('url')">Paste URL</button>
+        </div>
+
+        <div id="fileTab">
+            <div class="upload-zone" id="dropZone">
+                <div class="upload-icon">&#127916;</div>
+                <div class="upload-title">Drop video or .srt file here</div>
+                <div class="upload-hint">MP4, MOV, MKV, WEBM, AVI, or SRT transcript</div>
+                <div class="upload-badge" id="fileName"></div>
+            </div>
+            <input type="file" id="fileInput" accept=".mp4,.mov,.mkv,.webm,.avi,.m4v,.srt">
+        </div>
+
+        <div class="url-section" id="urlTab">
+            <input class="input" id="ytUrl" type="url" placeholder="Paste YouTube, Twitch, Twitter, or any video URL...">
+        </div>
+
+        <div class="field">
+            <div class="field-label">What do you want to capture?</div>
+            <div class="field-hint">Guide the AI toward specific moments. Leave blank for general viral detection.</div>
+            <input class="input" id="intentInput" type="text" placeholder="e.g. controversial takes, funny reactions, key business insights...">
+        </div>
+
+        <div class="options-row">
+            <div>
+                <div class="field-label">Clip length</div>
+                <select class="select" id="clipLength">
+                    <option value="short" selected>Short (15-35s)</option>
+                    <option value="medium">Medium (30-60s)</option>
+                </select>
+            </div>
+            <div>
+                <div class="field-label">Max clips</div>
+                <select class="select" id="maxClips">
+                    <option value="3">3</option>
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                </select>
+            </div>
+            <div>
+                <div class="field-label">Caption style</div>
+                <select class="select" id="captionStyle">
+                    <option value="bold">Bold (yellow)</option>
+                    <option value="clean">Clean (coral)</option>
+                    <option value="neon">Neon (magenta)</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="pop">Pop (scale)</option>
+                    <option value="bounce">Bounce (green)</option>
+                    <option value="glow">Glow (blue)</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-primary" id="goBtn" disabled>
+            <span>&#9889;</span> Generate Clips
+        </button>
+
+        <div class="pipeline" id="pipeline">
+            <div class="pipeline-steps">
+                <div class="pipe-step" data-stage="probe">Upload</div>
+                <div class="pipe-step" data-stage="audio">Audio</div>
+                <div class="pipe-step" data-stage="transcribe">Transcribe</div>
+                <div class="pipe-step" data-stage="analyze">AI Analyze</div>
+                <div class="pipe-step" data-stage="render">Render</div>
+            </div>
+            <div class="status-row">
+                <div class="spinner"></div>
+                <span id="statusText">Starting...</span>
+                <span class="timer" id="timer">0.0s</span>
+            </div>
+        </div>
+
+        <div class="results" id="results">
+            <div class="results-header">
+                <h2 class="results-title" id="resultsTitle">Generated Clips</h2>
+                <div class="badge-row" id="metaBadges"></div>
+            </div>
+            <div class="clip-list" id="clipsList"></div>
+        </div>
+    </div></main>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let selectedFile=null,timerInterval=null,activeTab='file',currentJobId=null;
+
+function setTab(t){
+    activeTab=t;
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase().includes(t==='url'?'url':'upload')));
+    $('fileTab').style.display=t==='file'?'':'none';
+    $('urlTab').classList.toggle('active',t==='url');
+    updateBtn();
+}
+function updateBtn(){$('goBtn').disabled=activeTab==='file'?!selectedFile:!$('ytUrl').value.trim()}
+
+$('dropZone').onclick=()=>$('fileInput').click();
+$('dropZone').ondragover=e=>{e.preventDefault();$('dropZone').classList.add('dragover')};
+$('dropZone').ondragleave=()=>$('dropZone').classList.remove('dragover');
+$('dropZone').ondrop=e=>{e.preventDefault();$('dropZone').classList.remove('dragover');if(e.dataTransfer.files.length)pick(e.dataTransfer.files[0])};
+$('fileInput').onchange=()=>{if($('fileInput').files.length)pick($('fileInput').files[0])};
+$('ytUrl').oninput=updateBtn;
+
+function pick(f){selectedFile=f;$('fileName').textContent=f.name+' ('+(f.size/1048576).toFixed(1)+' MB)';updateBtn()}
+
+$('goBtn').onclick=()=>{
+    $('goBtn').disabled=true;$('clipsList').innerHTML='';$('metaBadges').innerHTML='';
+    $('results').classList.remove('active');
+    document.querySelectorAll('.pipe-step').forEach(s=>s.classList.remove('active','done'));
+    const t0=performance.now();
+    $('pipeline').classList.add('active');$('pipeline').classList.remove('finished');
+    $('statusText').textContent=activeTab==='url'?'Downloading...':'Uploading...';
+    clearInterval(timerInterval);
+    timerInterval=setInterval(()=>$('timer').textContent=((performance.now()-t0)/1000).toFixed(1)+'s',100);
+
+    let fetchP,isSrt=false;
+    const fd=new FormData();
+    fd.append('user_intent',$('intentInput').value);
+    fd.append('caption_style',$('captionStyle').value);
+    fd.append('clip_length',$('clipLength').value);
+    fd.append('max_clips',$('maxClips').value);
+
+    if(activeTab==='url'){
+        fd.append('url',$('ytUrl').value.trim());
+        document.querySelectorAll('.pipe-step').forEach(s=>s.style.display='');
+        fetchP=fetch('/api/analyze-url',{method:'POST',body:fd});
+    } else {
+        if(!selectedFile)return;
+        isSrt=selectedFile.name.toLowerCase().endsWith('.srt');
+        fd.append('file',selectedFile);
+        document.querySelectorAll('.pipe-step').forEach(s=>{
+            s.style.display=(isSrt&&['probe','audio','transcribe','render'].includes(s.dataset.stage))?'none':'';
+        });
+        fetchP=fetch('/api/analyze',{method:'POST',body:fd});
+    }
+
+    let idx=0;
+    $('results').classList.add('active');
+    $('resultsTitle').textContent=(isSrt&&activeTab!=='url')?'Viral Segments':'Generated Clips';
+
+    fetchP.then(resp=>{
+        const reader=resp.body.getReader(),dec=new TextDecoder();
+        let buf='',evN='';
+        (function rd(){reader.read().then(({done,value})=>{
+            if(done){finish();return}
+            buf+=dec.decode(value,{stream:true});
+            const lines=buf.split('\n');buf=lines.pop();
+            for(const l of lines){
+                if(l.startsWith('event:'))evN=l.substring(6).trim();
+                else if(l.startsWith('data:')){handle(evN,l.substring(5).trim());evN=''}
+            }
+            rd();
+        })})();
+    }).catch(e=>{$('statusText').textContent='Error: '+e.message;finish()});
+
+    function handle(ev,data){
+        if(ev==='status')$('statusText').textContent=data;
+        else if(ev==='pipeline'){const p=JSON.parse(data);setStage(p.stage);$('statusText').textContent=p.message}
+        else if(ev==='segment'){renderSeg(JSON.parse(data),++idx)}
+        else if(ev==='clip_ready'){const cd=JSON.parse(data);if(cd.job_id)currentJobId=cd.job_id;renderClip(cd,++idx)}
+        else if(ev==='done'){
+            const m=JSON.parse(data);if(m.jobId)currentJobId=m.jobId;
+            $('metaBadges').innerHTML=[
+                m.modelUsed&&`<span class="badge">${m.modelUsed}</span>`,
+                m.elapsed&&`<span class="badge">${m.elapsed}s</span>`,
+                m.segmentCount!=null&&`<span class="badge">${m.segmentCount} segments</span>`,
+                m.inputTokens&&`<span class="badge">${m.inputTokens}/${m.outputTokens} tok</span>`,
+                m.total_cost&&`<span class="badge badge-cost">${m.total_cost}</span>`,
+            ].filter(Boolean).join('');
+            if(m.clips&&m.clips.length){$('clipsList').innerHTML='';idx=0;m.clips.forEach(c=>{c.jobId=m.jobId;renderClip(c,++idx)})}
+            document.querySelectorAll('.pipe-step').forEach(s=>s.classList.add('done'));
+            finish();
+        }
+        else if(ev==='error'){$('statusText').textContent='Error: '+data;finish()}
+    }
+    function finish(){clearInterval(timerInterval);$('goBtn').disabled=false;$('pipeline').classList.add('finished');$('statusText').textContent='Complete — '+$('timer').textContent}
+};
+
+function setStage(stage){
+    let found=false;
+    document.querySelectorAll('.pipe-step').forEach(s=>{
+        if(s.dataset.stage===stage){s.classList.add('active');s.classList.remove('done');found=true}
+        else if(!found){s.classList.remove('active');s.classList.add('done')}
+        else{s.classList.remove('active','done')}
+    });
+}
+
+const fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+const sc=s=>s>=80?'score-high':s>=60?'score-mid':'score-low';
+
+function renderSeg(seg,i){
+    const d=((seg.end_time||0)-(seg.start_time||0)).toFixed(0);
+    const el=document.createElement('div');el.className='seg-card';
+    el.style.animationDelay=i*0.05+'s';
+    el.innerHTML=`
+        <div class="clip-top"><div class="clip-title">${i}. ${seg.suggested_title||''}</div><div class="clip-score ${sc(seg.virality_score)}">${seg.virality_score}</div></div>
+        <div class="clip-meta"><span class="meta-pill">${fmt(seg.start_time)} – ${fmt(seg.end_time)}</span><span class="meta-pill">${d}s</span><span class="meta-pill">${seg.topic||''}</span></div>
+        <div class="clip-hook">"${seg.hook_text||''}"</div>
+        <div class="clip-meta">${(seg.suggested_hashtags||[]).map(h=>'<span class="tag-pill">'+h+'</span>').join('')}</div>`;
+    $('clipsList').appendChild(el);
+}
+
+function renderClip(c,i){
+    if(c.job_id)currentJobId=c.job_id;
+    const d=((c.end_time||0)-(c.start_time||0)).toFixed(0),has=!!c.video_url;
+    const multi=c.multi_speaker?'<span class="meta-pill" style="color:var(--warning)">Multi-speaker</span>':'';
+    const el=document.createElement('div');el.className='clip-card';el.id='card_'+i;
+    el.style.animationDelay=i*0.08+'s';
+    el.innerHTML=`
+    <div class="clip-body">
+        ${has?`<div class="clip-preview" id="p${i}" onclick="togglePlay(${i})"><video src="${c.video_url}" preload="metadata" loop playsinline poster="${c.thumb_url||''}"></video><div class="clip-play">&#9654;</div></div>`:''}
+        <div class="clip-info">
+            <div class="clip-top"><div class="clip-title">${i}. ${c.suggested_title||''}</div><div class="clip-score ${sc(c.virality_score)}">${c.virality_score}</div></div>
+            <div class="clip-meta"><span class="meta-pill">${fmt(c.start_time)} – ${fmt(c.end_time)}</span><span class="meta-pill">${d}s</span><span class="meta-pill">${c.topic||''}</span>${multi}</div>
+            <div class="clip-hook">"${c.hook_text||''}"</div>
+            <div class="clip-meta">${(c.suggested_hashtags||[]).map(h=>'<span class="tag-pill">'+h+'</span>').join('')}</div>
+            ${has?`<div class="clip-actions">
+                <a class="btn-sm btn-accent" href="${c.download_url}" download>&#11015; Download</a>
+                <button class="btn-sm" onclick="toggleEditor(${i})">&#9998; Edit</button>
+                <button class="btn-sm" onclick="toggleThumbs(${i},'${c.clip_id||''}')">&#128247; Thumbnails</button>
+            </div>`:''}
+        </div>
+    </div>
+    ${has?`
+    <div class="editor-panel" id="ed_${i}">
+        <div class="editor-controls">
+            <span class="editor-label">Start</span>
+            <button class="btn-xs" onclick="adj(${i},'s',-5)">-5s</button>
+            <button class="btn-xs" onclick="adj(${i},'s',-1)">-1s</button>
+            <span class="editor-value" id="es_${i}">${fmt(c.start_time)}</span>
+            <button class="btn-xs" onclick="adj(${i},'s',1)">+1s</button>
+            <button class="btn-xs" onclick="adj(${i},'s',5)">+5s</button>
+            <span style="width:1.5rem"></span>
+            <span class="editor-label">End</span>
+            <button class="btn-xs" onclick="adj(${i},'e',-5)">-5s</button>
+            <button class="btn-xs" onclick="adj(${i},'e',-1)">-1s</button>
+            <span class="editor-value" id="ee_${i}">${fmt(c.end_time)}</span>
+            <button class="btn-xs" onclick="adj(${i},'e',1)">+1s</button>
+            <button class="btn-xs" onclick="adj(${i},'e',5)">+5s</button>
+            <button class="btn-sm btn-accent" onclick="rerender(${i})" id="rr_${i}" style="margin-left:auto">Re-render</button>
+        </div>
+    </div>
+    <div class="thumb-panel" id="tp_${i}"><div class="thumb-grid" id="tg_${i}"></div></div>
+    `:''}`;
+    el._start=c.start_time;el._end=c.end_time;el._clipId=c.clip_id||'';
+    $('clipsList').appendChild(el);
+}
+
+function togglePlay(i){const el=$('p'+i);if(!el)return;const v=el.querySelector('video');v.paused?(v.play(),el.classList.add('playing')):(v.pause(),el.classList.remove('playing'))}
+function toggleEditor(i){$('ed_'+i)?.classList.toggle('open')}
+
+function adj(i,w,d){
+    const card=$('card_'+i);
+    if(w==='s'){card._start=Math.max(0,card._start+d);$('es_'+i).textContent=fmt(card._start)}
+    else{card._end=Math.max(card._start+5,card._end+d);$('ee_'+i).textContent=fmt(card._end)}
+}
+
+function rerender(i){
+    const card=$('card_'+i),btn=$('rr_'+i);
+    if(!currentJobId||!card._clipId)return;
+    btn.textContent='Rendering...';btn.disabled=true;
+    const fd=new FormData();
+    fd.append('start_time',card._start);fd.append('end_time',card._end);
+    fd.append('caption_style',$('captionStyle').value);
+    fetch(`/api/jobs/${currentJobId}/clips/${card._clipId}/rerender`,{method:'POST',body:fd})
+        .then(r=>r.json()).then(clip=>{
+            if(clip.error){alert(clip.error);return}
+            const prev=$('p'+i);
+            if(prev){prev.querySelector('video').src=clip.video_url+'?t='+Date.now();prev.classList.remove('playing')}
+            const dl=card.querySelector('a[download]');if(dl)dl.href=clip.download_url+'?t='+Date.now();
+        }).catch(e=>alert('Failed: '+e.message))
+        .finally(()=>{btn.textContent='Re-render';btn.disabled=false});
+}
+
+function toggleThumbs(i,clipId){
+    const tp=$('tp_'+i),tg=$('tg_'+i);
+    if(tp.classList.contains('open')){tp.classList.remove('open');return}
+    tp.classList.add('open');
+    if(!currentJobId||!clipId)return;
+    tg.innerHTML='<span style="color:var(--text-tertiary);font-size:0.82rem">Generating thumbnails...</span>';
+    fetch(`/api/jobs/${currentJobId}/clips/${clipId}/thumbnails`,{method:'POST'})
+        .then(r=>r.json()).then(thumbs=>{
+            tg.innerHTML=thumbs.map(t=>`<div class="thumb-item" onclick="this.parentElement.querySelectorAll('.thumb-item').forEach(x=>x.classList.remove('selected'));this.classList.add('selected')"><img src="${t.url}"></div>`).join('');
+        }).catch(()=>{tg.innerHTML='<span style="color:var(--error);font-size:0.82rem">Failed</span>'});
+}
+</script>
+</body>
+</html>

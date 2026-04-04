@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
 from typing import Optional
 
-DB_PATH = Path(__file__).parent / "cliphook.db"
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "cliphook.db"))
 
 
 def _conn() -> sqlite3.Connection:
@@ -61,6 +62,26 @@ def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_clips_job ON clips(job_id);
+
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                avatar_url TEXT DEFAULT '',
+                password_hash TEXT,
+                google_id TEXT UNIQUE,
+                plan TEXT NOT NULL DEFAULT 'free',
+                stripe_customer_id TEXT,
+                analyses_this_month INTEGER NOT NULL DEFAULT 0,
+                month_reset_at REAL,
+                created_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS trials (
+                id TEXT PRIMARY KEY,
+                analyses_count INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL
+            );
         """)
 
 
@@ -149,6 +170,90 @@ def delete_job(job_id: str):
     with _conn() as c:
         c.execute("DELETE FROM clips WHERE job_id=?", (job_id,))
         c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+
+
+# ── User helpers ─────────────────────────────────────────────────────
+
+def create_user(user_id: str, email: str, name: str = "", avatar_url: str = "",
+                password_hash: str = None, google_id: str = None):
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO users (id, email, name, avatar_url, password_hash, google_id, created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (user_id, email, name, avatar_url, password_hash, google_id, time.time()),
+        )
+
+
+def get_user(user_id: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_email(email: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_google_id(google_id: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE google_id=?", (google_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def link_google_id(user_id: str, google_id: str):
+    with _conn() as c:
+        c.execute("UPDATE users SET google_id=? WHERE id=?", (google_id, user_id))
+
+
+def increment_user_analyses(user_id: str):
+    now = time.time()
+    with _conn() as c:
+        row = c.execute("SELECT month_reset_at, analyses_this_month FROM users WHERE id=?", (user_id,)).fetchone()
+        if row and row["month_reset_at"] and now > row["month_reset_at"]:
+            # New month — reset counter
+            import calendar
+            from datetime import datetime
+            dt = datetime.fromtimestamp(now)
+            if dt.month == 12:
+                next_reset = datetime(dt.year + 1, 1, 1).timestamp()
+            else:
+                next_reset = datetime(dt.year, dt.month + 1, 1).timestamp()
+            c.execute("UPDATE users SET analyses_this_month=1, month_reset_at=? WHERE id=?", (next_reset, user_id))
+        else:
+            if not row or not row["month_reset_at"]:
+                from datetime import datetime
+                dt = datetime.fromtimestamp(now)
+                if dt.month == 12:
+                    next_reset = datetime(dt.year + 1, 1, 1).timestamp()
+                else:
+                    next_reset = datetime(dt.year, dt.month + 1, 1).timestamp()
+                c.execute("UPDATE users SET analyses_this_month=1, month_reset_at=? WHERE id=?", (next_reset, user_id))
+            else:
+                c.execute("UPDATE users SET analyses_this_month=analyses_this_month+1 WHERE id=?", (user_id,))
+
+
+# ── Trial helpers ────────────────────────────────────────────────────
+
+def get_trial(trial_id: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM trials WHERE id=?", (trial_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def create_trial(trial_id: str):
+    with _conn() as c:
+        c.execute("INSERT OR IGNORE INTO trials (id, analyses_count, created_at) VALUES (?,0,?)",
+                  (trial_id, time.time()))
+
+
+def increment_trial(trial_id: str) -> int:
+    """Increment and return new count."""
+    with _conn() as c:
+        c.execute("UPDATE trials SET analyses_count=analyses_count+1 WHERE id=?", (trial_id,))
+        row = c.execute("SELECT analyses_count FROM trials WHERE id=?", (trial_id,)).fetchone()
+    return row["analyses_count"] if row else 0
 
 
 # Auto-init on import

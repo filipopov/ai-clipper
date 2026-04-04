@@ -1,0 +1,10 @@
+.git
+.idea
+.claude
+poc/.venv
+poc/__pycache__
+poc/workdir
+poc/*.db
+poc/*.db-shm
+poc/*.db-wal
+poc/.env

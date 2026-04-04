@@ -6,12 +6,16 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, UploadFile
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import costs
 import database as db
+from auth import router as auth_router, get_current_user
 from analyzer import analyze_streaming, smart_max_clips, DEFAULT_MAX_CLIPS
 from caption_generator import generate_ass, STYLES
 from face_detector import detect_faces_in_segment
@@ -22,10 +26,11 @@ from video_processor import burn_captions, cut_clip, generate_thumbnail, reforma
 from youtube import download as yt_download
 
 app = FastAPI(title="Cliphook")
+app.include_router(auth_router)
 
 BASE_DIR = Path(__file__).parent
-WORK_DIR = BASE_DIR / "workdir"
-WORK_DIR.mkdir(exist_ok=True)
+WORK_DIR = Path(os.environ.get("WORK_DIR", BASE_DIR / "workdir"))
+WORK_DIR.mkdir(parents=True, exist_ok=True)
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
@@ -89,12 +94,18 @@ def _render_single_clip(
 
 @app.post("/api/analyze")
 async def analyze_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     user_intent: str = Form(default=""),
     caption_style: str = Form(default="bold"),
     clip_length: str = Form(default="short"),
     max_clips: int = Form(default=DEFAULT_MAX_CLIPS),
 ):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    db.increment_user_analyses(user["id"])
+
     filename = file.filename or ""
     ext = Path(filename).suffix.lower()
     is_video = ext in VIDEO_EXTENSIONS
@@ -129,12 +140,18 @@ async def analyze_endpoint(
 
 @app.post("/api/analyze-url")
 async def analyze_url_endpoint(
+    request: Request,
     url: str = Form(...),
     user_intent: str = Form(default=""),
     caption_style: str = Form(default="bold"),
     clip_length: str = Form(default="short"),
     max_clips: int = Form(default=DEFAULT_MAX_CLIPS),
 ):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    db.increment_user_analyses(user["id"])
+
     job_id = str(uuid.uuid4())[:8]
     job_dir = WORK_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -206,7 +223,9 @@ async def rerender_clip(
 # ── Dashboard API ─────────────────────────────────────────────────────
 
 @app.get("/api/jobs")
-async def list_jobs():
+async def list_jobs(request: Request):
+    if not get_current_user(request):
+        return JSONResponse({"error": "auth_required"}, status_code=401)
     return JSONResponse(db.list_jobs())
 
 
