@@ -11,9 +11,10 @@ from video_processor import FFMPEG, FFPROBE
 
 
 def extract_audio(video_path: str, output_path: str) -> str:
-    """Extract audio from video as mono 16kHz WAV."""
+    """Extract audio from video as mono 16kHz OGG/Opus (much smaller than WAV, same Whisper quality)."""
     subprocess.run(
-        [FFMPEG, "-y", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1", output_path],
+        [FFMPEG, "-y", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1",
+         "-c:a", "libopus", "-b:a", "32k", output_path],
         capture_output=True, check=True,
     )
     return output_path
@@ -37,7 +38,7 @@ def transcribe(audio_path: str) -> dict:
     """Transcribe audio using OpenAI Whisper API. Returns segments + words with timestamps."""
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    # Whisper API has 25MB limit — chunk if needed
+    # Whisper API has 25MB limit — chunk if needed (Opus files are small, but check anyway)
     file_size = Path(audio_path).stat().st_size
     if file_size > 24 * 1024 * 1024:
         return _transcribe_chunked(client, audio_path)
@@ -75,10 +76,10 @@ def _transcribe_chunked(client: OpenAI, audio_path: str, chunk_minutes: int = 10
         start = 0.0
         chunk_idx = 0
         while start < total_duration:
-            chunk_path = os.path.join(tmpdir, f"chunk_{chunk_idx}.wav")
+            chunk_path = os.path.join(tmpdir, f"chunk_{chunk_idx}.ogg")
             subprocess.run(
                 [FFMPEG, "-y", "-i", audio_path, "-ss", str(start), "-t", str(chunk_seconds + overlap),
-                 "-ar", "16000", "-ac", "1", chunk_path],
+                 "-ar", "16000", "-ac", "1", "-c:a", "libopus", "-b:a", "32k", chunk_path],
                 capture_output=True, check=True,
             )
 

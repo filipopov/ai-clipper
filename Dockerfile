@@ -23,6 +23,7 @@ RUN mkdir -p /data/workdir
 # Use /data for persistent storage (Railway volume mount point)
 ENV WORK_DIR=/data/workdir
 ENV DB_PATH=/data/cliphook.db
+ENV FFMPEG_PRESET=ultrafast
 
 EXPOSE 8080
 

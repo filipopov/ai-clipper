@@ -11,6 +11,9 @@ _FFPROBE_FULL = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
 FFMPEG = _FFMPEG_FULL if os.path.exists(_FFMPEG_FULL) else (shutil.which("ffmpeg") or "ffmpeg")
 FFPROBE = _FFPROBE_FULL if os.path.exists(_FFPROBE_FULL) else (shutil.which("ffprobe") or "ffprobe")
 
+# "ultrafast" on Railway, "fast" locally — same quality, smaller files with "fast"
+PRESET = os.getenv("FFMPEG_PRESET", "fast")
+
 
 def cut_clip(source: str, start: float, end: float, output: str) -> str:
     """Extract a time segment from source video."""
@@ -20,6 +23,35 @@ def cut_clip(source: str, start: float, end: float, output: str) -> str:
         capture_output=True, check=True,
     )
     return output
+
+
+def _build_vertical_vf(
+    input_path: str,
+    width: int = 1080,
+    height: int = 1920,
+    face_x: float = 0.5,
+    crop_width_ratio: float = 0.5625,
+) -> str:
+    """Build the crop+scale filter string for vertical reformat."""
+    probe = subprocess.run(
+        [FFPROBE, "-v", "quiet", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    src_w, src_h = [int(x) for x in probe.stdout.strip().split(",")]
+    src_ratio = src_w / src_h
+    target_ratio = 9 / 16
+
+    if src_ratio > target_ratio:
+        crop_w = min(src_w, int(src_h * crop_width_ratio))
+        max_offset = src_w - crop_w
+        offset_x = int(face_x * src_w - crop_w / 2)
+        offset_x = max(0, min(offset_x, max_offset))
+        return f"crop={crop_w}:{src_h}:{offset_x}:0,scale={width}:{height}:flags=lanczos,setsar=1"
+    elif src_ratio < target_ratio:
+        return f"crop=iw:iw*16/9,scale={width}:{height}:flags=lanczos,setsar=1"
+    else:
+        return f"scale={width}:{height}:flags=lanczos,setsar=1"
 
 
 def reformat_vertical(
@@ -35,29 +67,10 @@ def reformat_vertical(
     face_x: horizontal face center (0-1). crop_width_ratio: how wide to crop relative to source height.
     For single speaker: 9/16 = 0.5625. For multi-speaker: wider (0.7-1.0).
     """
-    probe = subprocess.run(
-        [FFPROBE, "-v", "quiet", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
-        capture_output=True, text=True, check=True,
-    )
-    src_w, src_h = [int(x) for x in probe.stdout.strip().split(",")]
-    src_ratio = src_w / src_h
-    target_ratio = 9 / 16
-
-    if src_ratio > target_ratio:
-        crop_w = min(src_w, int(src_h * crop_width_ratio))
-        max_offset = src_w - crop_w
-        offset_x = int(face_x * src_w - crop_w / 2)
-        offset_x = max(0, min(offset_x, max_offset))
-        vf = f"crop={crop_w}:{src_h}:{offset_x}:0,scale={width}:{height}:flags=lanczos,setsar=1"
-    elif src_ratio < target_ratio:
-        vf = f"crop=iw:iw*16/9,scale={width}:{height}:flags=lanczos,setsar=1"
-    else:
-        vf = f"scale={width}:{height}:flags=lanczos,setsar=1"
-
+    vf = _build_vertical_vf(input_path, width, height, face_x, crop_width_ratio)
     subprocess.run(
-        [FFMPEG, "-y", "-i", input_path, "-vf", vf,
-         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        [FFMPEG, "-y", "-threads", "0", "-i", input_path, "-vf", vf,
+         "-c:v", "libx264", "-preset", PRESET, "-crf", "23",
          "-c:a", "aac", "-b:a", "128k",
          "-movflags", "+faststart", "-pix_fmt", "yuv420p",
          output_path],
@@ -68,13 +81,36 @@ def reformat_vertical(
 
 def burn_captions(input_path: str, ass_path: str, output_path: str) -> str:
     """Burn ASS subtitles into video."""
-    # Need to escape path for ass filter
     escaped = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     subprocess.run(
-        [FFMPEG, "-y", "-i", input_path,
+        [FFMPEG, "-y", "-threads", "0", "-i", input_path,
          "-vf", f"ass={escaped}",
-         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+         "-c:v", "libx264", "-preset", PRESET, "-crf", "23",
          "-c:a", "copy",
+         "-movflags", "+faststart", "-pix_fmt", "yuv420p",
+         output_path],
+        capture_output=True, check=True,
+    )
+    return output_path
+
+
+def reformat_and_burn(
+    input_path: str,
+    ass_path: str,
+    output_path: str,
+    width: int = 1080,
+    height: int = 1920,
+    face_x: float = 0.5,
+    crop_width_ratio: float = 0.5625,
+) -> str:
+    """Crop to vertical + burn captions in a single encode pass."""
+    vf = _build_vertical_vf(input_path, width, height, face_x, crop_width_ratio)
+    escaped = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    vf_combined = f"{vf},ass={escaped}"
+    subprocess.run(
+        [FFMPEG, "-y", "-threads", "0", "-i", input_path, "-vf", vf_combined,
+         "-c:v", "libx264", "-preset", PRESET, "-crf", "23",
+         "-c:a", "aac", "-b:a", "128k",
          "-movflags", "+faststart", "-pix_fmt", "yuv420p",
          output_path],
         capture_output=True, check=True,

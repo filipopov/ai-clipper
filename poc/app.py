@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +23,7 @@ from face_detector import detect_faces_in_segment
 from srt_parser import parse_srt, to_transcript, total_duration
 from transcriber import extract_audio, get_video_info, transcribe
 from thumbnail import generate_candidates as gen_thumb_candidates, generate_with_text as gen_thumb_text
-from video_processor import burn_captions, cut_clip, generate_thumbnail, reformat_vertical
+from video_processor import burn_captions, cut_clip, generate_thumbnail, reformat_vertical, reformat_and_burn
 from youtube import download as yt_download
 
 app = FastAPI(title="Cliphook")
@@ -33,6 +34,9 @@ WORK_DIR = Path(os.environ.get("WORK_DIR", BASE_DIR / "workdir"))
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+
+# Max clips to render simultaneously — increase with more vCPUs on Railway
+RENDER_WORKERS = int(os.environ.get("RENDER_WORKERS", "3"))
 
 
 def sse(event: str, data) -> str:
@@ -54,29 +58,27 @@ def _render_single_clip(
     start = seg["start_time"]
     end = seg["end_time"]
 
-    # Per-clip face detection
-    face_info = detect_faces_in_segment(video_path, start, end, sample_count=4)
-
+    # Cut first (stream copy, instant), then detect faces on the small clip
     raw_path = str(clip_dir / "raw.mp4")
     cut_clip(video_path, start, end, raw_path)
 
-    vertical_path = str(clip_dir / "vertical.mp4")
-    reformat_vertical(
-        raw_path, vertical_path,
-        face_x=face_info["face_x"],
-        crop_width_ratio=face_info["crop_width_ratio"],
-    )
+    face_info = detect_faces_in_segment(raw_path, 0, end - start, sample_count=4)
 
     ass_content = generate_ass(words, start, end, style=caption_style)
     ass_path = str(clip_dir / "captions.ass")
     with open(ass_path, "w") as f:
         f.write(ass_content)
 
+    # Single encode pass: crop to vertical + burn captions together
     final_path = str(clip_dir / "final.mp4")
-    burn_captions(vertical_path, ass_path, final_path)
+    reformat_and_burn(
+        raw_path, ass_path, final_path,
+        face_x=face_info["face_x"],
+        crop_width_ratio=face_info["crop_width_ratio"],
+    )
 
     thumb_path = str(clip_dir / "thumb.jpg")
-    generate_thumbnail(vertical_path, thumb_path, (end - start) / 2)
+    generate_thumbnail(final_path, thumb_path, (end - start) / 2)
 
     return {
         **seg,
@@ -333,30 +335,33 @@ def _process_srt(srt_path: str, job_id: str, job_dir: Path, user_intent: str,
 
 def _process_video(video_path: str, job_id: str, job_dir: Path, user_intent: str,
                    caption_style: str = "bold", clip_length: str = "short", max_clips: int = 10):
-    # Step 1: Probe
-    yield sse("pipeline", {"stage": "probe", "message": "Reading video metadata..."})
+    # Steps 1+2: Probe and extract audio in parallel (they're independent)
+    yield sse("pipeline", {"stage": "probe", "message": "Reading video & extracting audio..."})
     db.update_job(job_id, status="probing")
-    try:
-        info = get_video_info(video_path)
-    except Exception as e:
-        db.update_job(job_id, status="failed", error=str(e))
-        yield sse("error", f"Failed to read video: {e}")
-        return
-    db.update_job(job_id, duration_seconds=info["duration"])
+    audio_path = str(job_dir / "audio.ogg")
 
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        probe_future = pool.submit(get_video_info, video_path)
+        audio_future = pool.submit(extract_audio, video_path, audio_path)
+
+        try:
+            info = probe_future.result()
+        except Exception as e:
+            audio_future.cancel()
+            db.update_job(job_id, status="failed", error=str(e))
+            yield sse("error", f"Failed to read video: {e}")
+            return
+
+        try:
+            audio_future.result()
+        except Exception as e:
+            db.update_job(job_id, status="failed", error=str(e))
+            yield sse("error", f"Audio extraction failed: {e}")
+            return
+
+    db.update_job(job_id, duration_seconds=info["duration"])
     effective_max = smart_max_clips(max_clips, info["duration"], clip_length)
     yield sse("status", f"Video: {info['width']}x{info['height']}, {info['duration']:.0f}s — targeting {effective_max} clips")
-
-    # Step 2: Extract audio
-    yield sse("pipeline", {"stage": "audio", "message": "Extracting audio..."})
-    db.update_job(job_id, status="extracting_audio")
-    audio_path = str(job_dir / "audio.wav")
-    try:
-        extract_audio(video_path, audio_path)
-    except Exception as e:
-        db.update_job(job_id, status="failed", error=str(e))
-        yield sse("error", f"Audio extraction failed: {e}")
-        return
 
     # Step 3: Transcribe
     yield sse("pipeline", {"stage": "transcribe", "message": "Transcribing audio (Whisper)..."})
@@ -404,22 +409,27 @@ def _process_video(video_path: str, job_id: str, job_dir: Path, user_intent: str
         yield sse("done", {**analysis_meta, "clips": []})
         return
 
-    # Step 5: Render clips — emit each only when fully rendered
+    # Step 5: Render clips in parallel — emit each as it finishes
     yield sse("pipeline", {"stage": "render", "message": f"Rendering {len(segments)} clips with face tracking..."})
     db.update_job(job_id, status="rendering")
     (job_dir / "clips").mkdir(exist_ok=True)
     rendered_clips = []
 
-    for i, seg in enumerate(segments):
-        yield sse("status", f"Rendering clip {i + 1}/{len(segments)}: {seg.get('suggested_title', '')}")
-        try:
-            clip_info = _render_single_clip(video_path, job_id, job_dir, seg, i, words, caption_style)
-            clip_info["job_id"] = job_id
-            rendered_clips.append(clip_info)
-            db.add_clip(job_id, f"{job_id}_{clip_info['clip_id']}", i, clip_info)
-            yield sse("clip_ready", clip_info)
-        except Exception as e:
-            yield sse("status", f"Failed to render clip {i + 1}: {e}")
+    with ThreadPoolExecutor(max_workers=RENDER_WORKERS) as pool:
+        future_to_idx = {
+            pool.submit(_render_single_clip, video_path, job_id, job_dir, seg, i, words, caption_style): i
+            for i, seg in enumerate(segments)
+        }
+        for future in as_completed(future_to_idx):
+            i = future_to_idx[future]
+            try:
+                clip_info = future.result()
+                clip_info["job_id"] = job_id
+                rendered_clips.append(clip_info)
+                db.add_clip(job_id, f"{job_id}_{clip_info['clip_id']}", i, clip_info)
+                yield sse("clip_ready", clip_info)
+            except Exception as e:
+                yield sse("status", f"Failed to render clip {i + 1}: {e}")
 
     # Costs
     c_cost = costs.claude_cost(
