@@ -12,10 +12,11 @@ Drop in a podcast, interview or stream (upload or YouTube link). Cliphook transc
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-007808?logo=ffmpeg&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 
-<!-- TODO: replace with a 10–20s GIF: paste URL → clips appearing one by one -->
+<!-- TODO: add a 10–20s GIF (paste URL → clips appearing one by one) and uncomment:
 ![Cliphook demo](docs/demo.gif)
+-->
 
-> **Live demo:** _TODO: add URL_ · **Built solo, end to end:** pipeline, backend, UI, auth, deployment.
+> **Built solo, end to end:** pipeline, backend, UI, auth, deployment.
 
 ---
 
@@ -30,10 +31,11 @@ Drop in a podcast, interview or stream (upload or YouTube link). Cliphook transc
 | **5. Caption & render** | Word timings become an `.ass` subtitle file with highlight/animation styles (bold, neon, pop, bounce, glow…). Crop, scale and caption burn-in happen in **one FFmpeg encode pass**. Clips render in parallel. |
 | **6. Extras** | Thumbnail candidates with text overlay, re-render a clip in a different caption style, per-job cost tracking. |
 
-<!-- TODO: screenshots -->
+<!-- TODO: add screenshots and uncomment:
 | Create | Results |
 |--------|---------|
 | ![Create screen](docs/screenshot-create.png) | ![Job results](docs/screenshot-results.png) |
+-->
 
 ---
 
